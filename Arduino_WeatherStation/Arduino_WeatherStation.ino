@@ -7,11 +7,14 @@
 #define DHTTYPE DHT21   // DHT 21 (AM2301)
 #define DHTPIN 40     // Digital pin connected to the DHT sensor
 DHT dht(DHTPIN, DHTTYPE);
-float humidity;
+int humidity = 0;
 float temp;
-int heatIndex;
-unsigned long timerDelay = 2000;
-float tempTolerance = -5;
+int heatIndex = 0;
+int lastHumidity = 0;
+int lastHeatIndex = 0;
+unsigned long tempCheckTimerDelay = 2000;
+unsigned long resetDisplayDelay = 10000;
+float tempTolerance = -3;
 boolean initialCall = true;
 unsigned long lastTime = 0;
 
@@ -46,19 +49,46 @@ void setup() {
   Arduino_SoftSerial.begin(4800);
   lcd.begin(16, 2);
   lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("David's Weather");
+  lcd.setCursor(0, 1);
+  lcd.print("Station");
+  delay(3000);
   pinMode(22, OUTPUT); //buzzer
-  // dht.begin();
+  dht.begin();
 }
 
 void loop() {
-  // if (((millis() - lastTime) > timerDelay) || initialCall) {
-  //   initialCall = false;
-  //   humidity = dht.readHumidity();
-  //   temp = dht.readTemperature(true);
-  //   lastTime = millis();
-  //   heatIndex = int(dht.computeHeatIndex(temp, humidity) + tempTolerance);
-  //   Serial.println(heatIndex);
-  // }
+  if ((((millis() - lastTime) > tempCheckTimerDelay) || initialCall) && currentKey == 'x') {
+    initialCall = false;
+    humidity = int(dht.readHumidity());
+    temp = dht.readTemperature(true);
+    lastTime = millis();
+    heatIndex = int(dht.computeHeatIndex(temp, humidity) + tempTolerance);
+    if (humidity != 0 && heatIndex != 0 && lastHumidity != humidity && lastHeatIndex != heatIndex){
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Temp-");
+      lcd.print(heatIndex);
+      lcd.print("F");
+      lcd.setCursor(0, 1);
+      lcd.print("Humidity-");
+      lcd.print(humidity);
+      lcd.print("%");
+      lastHumidity = humidity;
+      lastHeatIndex = heatIndex;
+    }
+    
+  }
+
+  if (currentKey != 'x'){
+    if (millis()-buzzerStart > resetDisplayDelay) {
+      currentKey = 'x';
+      lastKey = 'x';
+      lastHumidity = 0;
+      lastHeatIndex = 0;
+    }
+  }
 
   char customKey = customKeypad.getKey();
 
@@ -73,6 +103,7 @@ void loop() {
 
   if (customKey && int(customKey) - '0' >= 1 && int(customKey) - '0' <= 7){
     currentKey = customKey;
+    lastKey = 'x';
     buzzerOn = true;
     buzzerStart = millis();
   }
