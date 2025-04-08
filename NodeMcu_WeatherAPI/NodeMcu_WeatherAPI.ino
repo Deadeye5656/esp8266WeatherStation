@@ -6,12 +6,11 @@
 #include <Arduino_JSON.h>
 #include <SoftwareSerial.h>
 
-SoftwareSerial NodeMcu_SoftSerial(D1, D2);  //RX, TX
 char c;
 String dataIn;
 
-const char* ssid     = "ENTER_WIFI"; //enter your ssid/ wi-fi(case sensitive) router name - 2.4 Ghz only
-const char* password = "ENTER_PASSWORD";     // enter ssid password (case sensitive)
+const char* ssid     = "WIFI_SSID"; //enter your ssid/ wi-fi(case sensitive) router name - 2.4 Ghz only
+const char* password = "WIFI_PASSWORD";     // enter ssid password (case sensitive)
 
 String openWeatherMapApiKey = "OPEN_WEATHER_API_KEY";
 String timezoneApiKey = "TIMEZONE_API_KEY";
@@ -39,8 +38,8 @@ unsigned long unixTime;
 String day;
 
 void setup() {
-  Serial.begin(4800);
-  NodeMcu_SoftSerial.begin(4800);
+  Serial.begin(9600);
+  Serial1.begin(9600);
   WiFi.begin(ssid, password);
   Serial.println("Connecting");
   while(WiFi.status() != WL_CONNECTED) {
@@ -62,8 +61,6 @@ void loop() {
       jsonBuffer = httpGETRequest(serverPath.c_str());
       jsonResponse = JSON.parse(jsonBuffer);
 
-      Serial.println(jsonResponse);
-
       serverPath = "http://api.timezonedb.com/v2.1/get-time-zone?key=" + timezoneApiKey + "&format=json&by=position&lat="+ lat + "&lng="+ lon;
       
       jsonBuffer = httpGETRequest(serverPath.c_str());
@@ -83,7 +80,7 @@ void loop() {
     lastTime = millis();
   }
 
-  jsonBuilder = "{\"day\":\""+day+"\",\"list\":[{";
+  jsonBuilder = "<{\"day\":\""+day+"\",\"list\":[{";
   for (int i = 0; i < dayCount.toInt(); i++){
     String min = JSON.stringify(int(jsonResponse["list"][i]["temp"]["min"]));
     String max = JSON.stringify(int(jsonResponse["list"][i]["temp"]["max"]));
@@ -95,8 +92,10 @@ void loop() {
       jsonBuilder = jsonBuilder + ",{";
     }
   }
-  jsonBuilder = jsonBuilder + "]}\n";
-  NodeMcu_SoftSerial.print(jsonBuilder);
+  jsonBuilder = jsonBuilder + "]}>";
+
+  Serial1.println(jsonBuilder);
+  delay(500);
 }
 
 String dow(unsigned long t)

@@ -4,6 +4,8 @@
 #include "DHT.h"
 #include <LiquidCrystal.h>
 
+#define BUZZER 22     // Digital pin connected to the DHT sensor
+
 #define DHTTYPE DHT21   // DHT 21 (AM2301)
 #define DHTPIN 40     // Digital pin connected to the DHT sensor
 DHT dht(DHTPIN, DHTTYPE);
@@ -13,9 +15,10 @@ int heatIndex = 0;
 int lastHumidity = 0;
 int lastHeatIndex = 0;
 unsigned long tempCheckTimerDelay = 2000;
-unsigned long resetDisplayDelay = 10000;
+unsigned long resetDisplayDelay = 5000;
 float tempTolerance = -3;
-boolean initialCall = true;
+boolean forceNewDisplay = true;
+
 unsigned long lastTime = 0;
 
 const int rs = 52, en = 50, d4 = 48, d5 = 46, d6 = 44, d7 = 42;
@@ -38,34 +41,46 @@ Keypad customKeypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS)
 char currentKey = 'x';
 char lastKey = 'x';
 
-SoftwareSerial Arduino_SoftSerial(10, 11);  // RX, TX
+String dataBuilder = "";
 String data = "";
+boolean fetchData = true;
+unsigned long lastDataFetch;
+unsigned long dataTimerDelay = 3600000;
+JsonVariant list;
+int currentDay;
 
 boolean buzzerOn = false;
 unsigned long buzzerStart;
 
+const byte numChars = 256;
+char receivedChars[numChars];
+
+boolean newData = false;
+
+
 void setup() {
-  Serial.begin(4800);
-  Arduino_SoftSerial.begin(4800);
+  Serial1.begin(9600);
+  Serial.begin(9600);
   lcd.begin(16, 2);
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("David's Weather");
   lcd.setCursor(0, 1);
   lcd.print("Station");
-  delay(3000);
-  pinMode(22, OUTPUT); //buzzer
+  delay(2000);
+  pinMode(BUZZER, OUTPUT);
   dht.begin();
 }
 
 void loop() {
-  if ((((millis() - lastTime) > tempCheckTimerDelay) || initialCall) && currentKey == 'x') {
-    initialCall = false;
+  // Every 2 seconds, check temp and humidity if user isn't prompting for weather data
+  if (((millis() - lastTime) > tempCheckTimerDelay) && currentKey == 'x' && !fetchData) {
     humidity = int(dht.readHumidity());
     temp = dht.readTemperature(true);
     lastTime = millis();
     heatIndex = int(dht.computeHeatIndex(temp, humidity) + tempTolerance);
-    if (humidity != 0 && heatIndex != 0 && lastHumidity != humidity && lastHeatIndex != heatIndex){
+    // Only clear and display if data has changed
+    if ((humidity != 0 && heatIndex != 0) && ((lastHumidity != humidity && lastHeatIndex != heatIndex) || forceNewDisplay)){
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("Temp-");
@@ -77,10 +92,11 @@ void loop() {
       lcd.print("%");
       lastHumidity = humidity;
       lastHeatIndex = heatIndex;
+      forceNewDisplay = false;
     }
-    
   }
 
+  // After resetDisplayDelay, reset display back to temp and humidity
   if (currentKey != 'x'){
     if (millis()-buzzerStart > resetDisplayDelay) {
       currentKey = 'x';
@@ -91,16 +107,7 @@ void loop() {
   }
 
   char customKey = customKeypad.getKey();
-
-  if (buzzerOn) {
-    digitalWrite(22, HIGH);
-    if (millis()-buzzerStart > 10) {
-      buzzerOn = false;
-    }
-  } else {
-    digitalWrite(22, LOW);
-  }
-
+  // Update input if 1-7
   if (customKey && int(customKey) - '0' >= 1 && int(customKey) - '0' <= 7){
     currentKey = customKey;
     lastKey = 'x';
@@ -108,46 +115,98 @@ void loop() {
     buzzerStart = millis();
   }
 
-  while (Arduino_SoftSerial.available()) {
-    char c = Arduino_SoftSerial.read();
-    if (c == '\n'){
-      processCall(data);
-      data = "";
-    } else {
-      data.concat(c);
+  // Beep for key input
+  if (buzzerOn) {
+    digitalWrite(BUZZER, HIGH);
+    if (millis()-buzzerStart > 100) {
+      buzzerOn = false;
+      digitalWrite(BUZZER, LOW);
     }
+  }
+
+  // fetch data from ESP8266 every hour
+  if (!fetchData && (millis()-lastDataFetch > dataTimerDelay)){
+    fetchData = true;
+    data = "";
+  }
+
+  if (fetchData){
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Fetching Updated");
+    lcd.setCursor(0, 1);
+    lcd.print("Weather Data");
+  }
+
+  // Don't continue until data is pulled
+  boolean startReading = false;
+  while (fetchData) {
+      if (Serial1.available()) {
+        char c = Serial1.read();
+        if (c == '<'){
+          startReading = true;
+        } else if (c == '>'){
+          DynamicJsonBuffer jsonBuffer;
+          JsonObject& root = jsonBuffer.parseObject(data);
+          boolean isDataComplete = verifyData(root);
+          if (isDataComplete){
+            currentDay = int(root["day"]);
+            list = root["list"];
+            fetchData = false;
+            lastDataFetch = millis();
+            forceNewDisplay = true;
+            break;
+          } else {
+            data = "";
+            startReading = false;
+          }
+        } else if (startReading){
+          data.concat(c);
+        }
+    }
+  }
+  
+  // Display current weather data if key is pressed
+  if (currentKey != 'x' && lastKey != currentKey){ 
+    processCall(list);
   }
 }
 
-void processCall(String command) {
-  DynamicJsonBuffer jsonBuffer;
-  JsonObject& root = jsonBuffer.parseObject(command);
-  String test = root["list"][6]["desc"];
-  if (test == "") {return;}
-  if (root.success()) {
-    boolean validData = true;
-    if (currentKey != 'x' && lastKey != currentKey){ 
-      int currentKeyInt = int(currentKey) - '0';
-      int currentDay = atoi(root["day"]);
-      int dayDiff = currentKeyInt - currentDay;
-      if (dayDiff < 0) {dayDiff += 7;}
-      int min = atoi(root["list"][dayDiff]["min"]);
-      int max = atoi(root["list"][dayDiff]["max"]);
-      String desc = root["list"][dayDiff]["desc"];
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print(getDay(currentKeyInt));
-      lcd.print(" Low-");
-      lcd.print(min);
-      lcd.print("F");
-      lcd.setCursor(0, 1);
-      lcd.print("High-");
-      lcd.print(max);
-      lcd.print("F ");
-      lcd.print(desc);
-      lastKey = currentKey;
+boolean verifyData(JsonObject& root){
+  for (int i = 0; i < 7; i++){
+    int min = atoi(root["list"][i]["min"]);
+    int max = atoi(root["list"][i]["max"]);
+    String desc = root["list"][i]["desc"];
+    if (desc == "" || (min == 0 && max == 0)){
+      return false;
     }
   }
+  if (root.success()){
+    return true;
+  } else {
+    return false;
+  }
+}
+
+void processCall(JsonVariant root) {
+  int currentKeyInt = int(currentKey) - '0';
+  int dayDiff = currentKeyInt - currentDay;
+  if (dayDiff < 0) {dayDiff += 7;}
+  int min = atoi(root[dayDiff]["min"]);
+  int max = atoi(root[dayDiff]["max"]);
+  String desc = root[dayDiff]["desc"];
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(getDay(currentKeyInt));
+  lcd.print(" Low-");
+  lcd.print(min);
+  lcd.print("F");
+  lcd.setCursor(0, 1);
+  lcd.print("High-");
+  lcd.print(max);
+  lcd.print("F ");
+  lcd.print(desc);
+  lastKey = currentKey;
 }
 
 String getDay(int day){
@@ -170,3 +229,4 @@ String getDay(int day){
         return "";
   }
 }
+
