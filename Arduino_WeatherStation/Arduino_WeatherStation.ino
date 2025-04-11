@@ -4,7 +4,8 @@
 #include "DHT.h"
 #include <LiquidCrystal.h>
 
-#define BUZZER 22     // Digital pin connected to the DHT sensor
+#define BUZZER 22
+#define RESET_ESP8266 38
 
 #define DHTTYPE DHT21   // DHT 21 (AM2301)
 #define DHTPIN 40     // Digital pin connected to the DHT sensor
@@ -18,7 +19,6 @@ unsigned long tempCheckTimerDelay = 2000;
 unsigned long resetDisplayDelay = 5000;
 float tempTolerance = -3;
 boolean forceNewDisplay = true;
-
 unsigned long lastTime = 0;
 
 const int rs = 52, en = 50, d4 = 48, d5 = 46, d6 = 44, d7 = 42;
@@ -41,7 +41,6 @@ Keypad customKeypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS)
 char currentKey = 'x';
 char lastKey = 'x';
 
-String dataBuilder = "";
 String data = "";
 boolean fetchData = true;
 unsigned long lastDataFetch;
@@ -52,23 +51,19 @@ int currentDay;
 boolean buzzerOn = false;
 unsigned long buzzerStart;
 
-const byte numChars = 256;
-char receivedChars[numChars];
-
-boolean newData = false;
-
-
 void setup() {
   Serial1.begin(9600);
-  Serial.begin(9600);
+  Serial.begin(115200);
   lcd.begin(16, 2);
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("David's Weather");
   lcd.setCursor(0, 1);
   lcd.print("Station");
-  delay(2000);
   pinMode(BUZZER, OUTPUT);
+  pinMode(RESET_ESP8266, OUTPUT);
+  digitalWrite(RESET_ESP8266, LOW);
+  delay(2000);
   dht.begin();
 }
 
@@ -139,30 +134,24 @@ void loop() {
   }
 
   // Don't continue until data is pulled
-  boolean startReading = false;
   while (fetchData) {
-      if (Serial1.available()) {
-        char c = Serial1.read();
-        if (c == '<'){
-          startReading = true;
-        } else if (c == '>'){
-          DynamicJsonBuffer jsonBuffer;
-          JsonObject& root = jsonBuffer.parseObject(data);
-          boolean isDataComplete = verifyData(root);
-          if (isDataComplete){
-            currentDay = int(root["day"]);
-            list = root["list"];
-            fetchData = false;
-            lastDataFetch = millis();
-            forceNewDisplay = true;
-            break;
-          } else {
-            data = "";
-            startReading = false;
-          }
-        } else if (startReading){
-          data.concat(c);
-        }
+    if (Serial1.available())  {
+      data = Serial1.readStringUntil('>');
+      if (data == "") {continue;}
+      DynamicJsonBuffer jsonBuffer;
+      JsonObject& root = jsonBuffer.parseObject(data);
+      boolean isDataComplete = verifyData(root);
+      if (isDataComplete){
+        currentDay = int(root["day"]);
+        list = root["list"];
+        fetchData = false;
+        lastDataFetch = millis();
+        forceNewDisplay = true;
+        digitalWrite(RESET_ESP8266, HIGH);
+        delay(2000);
+        digitalWrite(RESET_ESP8266, LOW);
+        break;
+      } 
     }
   }
   
