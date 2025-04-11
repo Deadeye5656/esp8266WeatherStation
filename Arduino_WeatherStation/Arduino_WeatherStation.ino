@@ -5,7 +5,8 @@
 #include <LiquidCrystal.h>
 
 #define BUZZER 22
-#define RESET_ESP8266 38
+#define ESP8266_OFF 38
+#define ESP8266_ON 36
 
 #define DHTTYPE DHT21   // DHT 21 (AM2301)
 #define DHTPIN 40     // Digital pin connected to the DHT sensor
@@ -43,6 +44,7 @@ char lastKey = 'x';
 
 String data = "";
 boolean fetchData = true;
+boolean resetESP = false;
 unsigned long lastDataFetch;
 unsigned long dataTimerDelay = 3600000;
 JsonVariant list;
@@ -54,17 +56,25 @@ unsigned long buzzerStart;
 void setup() {
   Serial1.begin(9600);
   Serial.begin(115200);
+  dht.begin();
+
+  pinMode(BUZZER, OUTPUT);
+  pinMode(ESP8266_OFF, OUTPUT);
+  digitalWrite(ESP8266_OFF, LOW);
+
+  pinMode(ESP8266_ON, OUTPUT);
+  digitalWrite(ESP8266_ON, LOW);
+  delayMicroseconds(100);
+  digitalWrite(ESP8266_ON, HIGH);
+
   lcd.begin(16, 2);
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("David's Weather");
   lcd.setCursor(0, 1);
   lcd.print("Station");
-  pinMode(BUZZER, OUTPUT);
-  pinMode(RESET_ESP8266, OUTPUT);
-  digitalWrite(RESET_ESP8266, LOW);
+
   delay(2000);
-  dht.begin();
 }
 
 void loop() {
@@ -75,7 +85,7 @@ void loop() {
     lastTime = millis();
     heatIndex = int(dht.computeHeatIndex(temp, humidity) + tempTolerance);
     // Only clear and display if data has changed
-    if ((humidity != 0 && heatIndex != 0) && ((lastHumidity != humidity && lastHeatIndex != heatIndex) || forceNewDisplay)){
+    if ((humidity != 0 && heatIndex != 0) && ((lastHumidity != humidity || lastHeatIndex != heatIndex) || forceNewDisplay)){
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("Temp-");
@@ -119,10 +129,17 @@ void loop() {
     }
   }
 
+  // Start ESP8266 10 seconds before the hour
+  if (!resetESP && (millis()-lastDataFetch > dataTimerDelay - 10000)){
+    digitalWrite(ESP8266_ON, LOW);
+    delayMicroseconds(100);
+    digitalWrite(ESP8266_ON, HIGH);
+    resetESP = true;
+  }
+
   // fetch data from ESP8266 every hour
-  if (!fetchData && (millis()-lastDataFetch > dataTimerDelay)){
+  if ((millis()-lastDataFetch > dataTimerDelay)){
     fetchData = true;
-    data = "";
   }
 
   if (fetchData){
@@ -146,10 +163,12 @@ void loop() {
         list = root["list"];
         fetchData = false;
         lastDataFetch = millis();
+        resetESP = false;
         forceNewDisplay = true;
-        digitalWrite(RESET_ESP8266, HIGH);
+        // Tell ESP8266 to go to sleep, allow 2 seconds to read
+        digitalWrite(ESP8266_OFF, HIGH);
         delay(2000);
-        digitalWrite(RESET_ESP8266, LOW);
+        digitalWrite(ESP8266_OFF, LOW);
         break;
       } 
     }

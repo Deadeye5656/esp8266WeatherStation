@@ -94,7 +94,7 @@ void loop() {
   delay(500);
   int buttonState = digitalRead(ARDUINO_RESET);
   if (buttonState == HIGH) {
-    ESP.deepSleep(36e8 - 5e6); // 5 seconds before 1 hour mark
+    ESP.deepSleep(0); // Sleep until Arduino resets
   }
 }
 
