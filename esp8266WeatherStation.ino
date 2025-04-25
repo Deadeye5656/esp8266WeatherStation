@@ -38,7 +38,8 @@ int lastMinute = -1;
 long timeOffset = 1;
 
 Adafruit_BME280 bme;
-int humidityTolerance = -3;
+int humidityTolerance = 2;
+int tempTolerance = -2;
 int humidity = 0;
 int temp = 0;
 int lastHumidity = 0;
@@ -51,8 +52,7 @@ boolean buzzerOn = false;
 unsigned long buzzerStart;
 
 boolean modeClicked = false;
-boolean leftClicked = false;
-boolean rightClicked = false;
+boolean scrollClicked = false;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 int currentMode = 0; // 0 = time, 1 = temp/humidity, 2 = weather
@@ -78,38 +78,35 @@ void setup() {
 }
 
 void loop(){
-  if (digitalRead(LEFT_CLICK) == HIGH && currentMode == 2) {
-    if (!leftClicked){
+  // Left or right click selected while on weather mode
+  int leftClicked = digitalRead(LEFT_CLICK);
+  int rightClicked = digitalRead(RIGHT_CLICK);
+  if ((leftClicked == HIGH || rightClicked == HIGH) && currentMode == 2) {
+    if (!scrollClicked){
       buzzerOn = true;
       buzzerStart = millis();
-      leftClicked = true;
-      if (dayIndex == 0) {
-        dayIndex = 6;
-      } else {
-        dayIndex--;
+      scrollClicked = true;
+      if (leftClicked == HIGH) {
+        if (dayIndex == 0) {
+          dayIndex = 6;
+        } else {
+          dayIndex--;
+        }
+      }
+      if (rightClicked == HIGH) {
+        if (dayIndex == 6) {
+          dayIndex = 0;
+        } else {
+          dayIndex++;
+        }
       }
       updateWeatherDisplay = true;
     }
   } else {
-    leftClicked = false;
+    scrollClicked = false;
   }
 
-  if (digitalRead(RIGHT_CLICK) == HIGH && currentMode == 2) {
-    if (!rightClicked){
-      buzzerOn = true;
-      buzzerStart = millis();
-      rightClicked = true;
-      if (dayIndex == 6) {
-        dayIndex = 0;
-      } else {
-        dayIndex++;
-      }
-      updateWeatherDisplay = true;
-    }
-  } else {
-    rightClicked = false;
-  }
-
+  // Mode change pressed
   if (digitalRead(BUTTON_MODE) == HIGH) {
     if (!modeClicked){
       buzzerOn = true;
@@ -117,18 +114,14 @@ void loop(){
       modeClicked = true;
       if (currentMode == 0) {
         currentMode++;
-        lastHumidity = -1;
-        lastTemp = -1;
-        lastTempCheck = 0;
-        updateTempDisplay = true;
+        resetTempDisplay();
       } else if (currentMode == 1){
         currentMode++;
         dayIndex = 0;
-        updateWeatherDisplay = true;
+        resetWeatherDisplay();
       } else {
         currentMode = 0;
-        lastTimeSet = 0;
-        lastMinute = -1;
+        resetTimeDisplay();
       }
     }
   } else {
@@ -144,6 +137,7 @@ void loop(){
     }
   }
 
+  // Set time every second
   if (currentMode == 0 && ((millis() - lastTimeSet) > timeSetTimerDelay)){
     String hourStr = getDoubleDigitHour(hour());
     String minuteStr = getDoubleDigit(minute());
@@ -168,7 +162,7 @@ void loop(){
   // Every 2 seconds, check temp and humidity
   if (((millis() - lastTempCheck) > tempCheckTimerDelay) && currentMode == 1) {
     humidity = int(bme.readHumidity()) + humidityTolerance;
-    temp = int(1.8 * bme.readTemperature() + 32);
+    temp = int(1.8 * bme.readTemperature() + 32) + tempTolerance;
     lastTempCheck = millis();
     if (updateTempDisplay){
       lcd.clear();
@@ -194,6 +188,7 @@ void loop(){
     }
   }
 
+  // Set weather only on day change
   if (currentMode == 2 && updateWeatherDisplay){
     int min = int(weatherDataList[dayIndex]["temp"]["min"]);
     int max = int(weatherDataList[dayIndex]["temp"]["max"]);
@@ -213,6 +208,7 @@ void loop(){
     updateWeatherDisplay = false;
   }
 
+  // Update weather data hourly
   if ((millis() - lastWeatherUpdate) > weatherUpdateTimerDelay){
     getWeatherData();
     lastWeatherUpdate = millis();
@@ -246,15 +242,28 @@ void getWeatherData(){
   }
   // reset displays
   if (currentMode == 0){
-    lastTimeSet = 0;
-    lastMinute = -1;
+    resetTimeDisplay();
   } else if (currentMode == 1){
-    lastHumidity = -1;
-    lastTemp = -1;
-    lastTempCheck = 0;
+    resetTempDisplay();
   } else {
-    updateWeatherDisplay = true;
+    resetWeatherDisplay();
   }
+}
+
+void resetTempDisplay(){
+  lastHumidity = -1;
+  lastTemp = -1;
+  lastTempCheck = 0;
+  updateTempDisplay = true;
+}
+
+void resetTimeDisplay(){
+  lastTimeSet = 0;
+  lastMinute = -1;
+}
+
+void resetWeatherDisplay(){
+  updateWeatherDisplay = true;
 }
 
 void wifiConnect(){
@@ -325,7 +334,6 @@ String getAMPM(){
   }
 }
 
-
 String getDoubleDigit(int val){
   if (val < 10) {
     return "0" + String(val);
@@ -336,6 +344,9 @@ String getDoubleDigit(int val){
 String getDoubleDigitHour(int val){
   if (val == 0) {
     return "12";
+  }
+  if (val > 12){
+    val = val - 12;
   }
   return getDoubleDigit(val);
 }
