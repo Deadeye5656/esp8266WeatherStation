@@ -2,26 +2,14 @@
 #include <Wire.h>
 #include <Adafruit_BME280.h>
 #include <LiquidCrystal_I2C.h>
-#include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
 #include <TimeLib.h>
 
 #define SEALEVELPRESSURE_HPA (1013.25)
-#define BUZZER D8
+#define BUZZER D3
+#define BUZZER_FREQ 4000
 #define RIGHT_CLICK D7
 #define LEFT_CLICK D6
 #define BUTTON_MODE D5
-
-const char* ssid     = "WIFI_SSID";
-const char* password = "WIFI_PASSWORD";
-
-String openWeatherMapApiKey = "OPEN_WEATHER_API_KEY";
-String timezoneApiKey = "TIMEZONE_API_KEY";
-// Royal Oak, MI
-String lat = "42.49";
-String lon = "-83.14";
-String unit = "imperial";
-String dayCount = "7";
 
 // Weather variables
 String jsonBuffer;
@@ -48,7 +36,7 @@ boolean timerEnabled = false;
 unsigned long timerEnd = 0;
  
 // Alarm variables
-int alarmHours = 0;
+int alarmHours = 12;
 int alarmMins = 0;
 boolean alarmAm = true;
 boolean settingHoursAlarm = false;
@@ -62,9 +50,6 @@ unsigned long lastBuzzerFlip = 0;
 boolean alarmBuzzerOn = false;
 boolean alarmTriggered = false;
 
-boolean buzzerOn = false;
-unsigned long buzzerStart;
-
 boolean modeClicked = false;
 boolean bothClickedTimer = false;
 boolean bothClickedAlarm = false;
@@ -74,6 +59,8 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 int currentMode = 0; // 0 = time, 1 = temp/humidity, 2 = weather, 3 = timer, 4 = alarm
 
 void setup() {
+  Serial.begin(9600);
+
   bme.begin(0x76);  
 
   pinMode(LEFT_CLICK, INPUT);
@@ -82,10 +69,8 @@ void setup() {
 
   lcd.init();
   lcd.backlight();
-  lcd.setCursor(0, 0);
-  lcd.print(F("David's Weather"));
-  lcd.setCursor(0, 1);
-  lcd.print(F("Station"));
+  printToLCD(F("David's Weather"), 0);
+  printToLCD(F("Station"), 1);
   wifiConnect();
   getWeatherData();
   lcd.clear();
@@ -100,13 +85,12 @@ void loop(){
     if (leftClicked || rightClicked || modeButtonClicked){
       alarmTriggered = false;
       lcd.clear();
-      buzzerOn = true;
-      buzzerStart = millis();
+      tone(BUZZER, BUZZER_FREQ, 100);
     } else {
       if (alarmBuzzerOn) {
-        digitalWrite(BUZZER, HIGH);
+        tone(BUZZER, BUZZER_FREQ);
       } else {
-        digitalWrite(BUZZER, LOW);
+        noTone(BUZZER);
       }
       if (millis() - lastBuzzerFlip >= buzzerFlipInterval) {
         lastBuzzerFlip = millis();
@@ -125,16 +109,8 @@ void loop(){
   if (leftClicked == HIGH && rightClicked == HIGH && currentMode == 3){
     if (!bothClickedTimer){
       bothClickedTimer = true;
-      if (timerEnabled){ // if timer is counting down and there is a double click, then cancel timer
-        timerEnabled = false;
-        lcd.clear();
-      } else if (!settingHoursTimer && !settingMinutesTimer){
-        settingHoursTimer = true;
-        scrollClicked = true; // this avoids immediately changing hours after double click
-        lcd.clear();
-      }
-      buzzerOn = true;
-      buzzerStart = millis();
+      handleDoubleClickTimer();
+      tone(BUZZER, BUZZER_FREQ, 100);
     } 
   } else {
     bothClickedTimer = false;
@@ -144,121 +120,30 @@ void loop(){
   if (leftClicked == HIGH && rightClicked == HIGH && currentMode == 4){
     if (!bothClickedAlarm){
       bothClickedAlarm = true;
-      if (alarmEnabled){ // if timer is counting down and there is a double click, then cancel timer
-        alarmEnabled = false;
-        lcd.clear();
-      } else if (!settingHoursAlarm && !settingMinutesAlarm && !settingAmpmAlarm){
-        settingHoursAlarm = true;
-        scrollClicked = true; // this avoids immediately changing hours after double click
-        lcd.clear();
-      }
-      buzzerOn = true;
-      buzzerStart = millis();
+      handleDoubleClickAlarm();
+      tone(BUZZER, BUZZER_FREQ, 100);
     } 
   } else {
     bothClickedAlarm = false;
   }
 
-  // Left or right click selected while setting timer minutes or hours
+  // Left or right click selected while setting timer/alarm minutes or hours, or weather day
   if ((leftClicked == HIGH || rightClicked == HIGH) && 
       (((currentMode == 3 || currentMode == 4)
       && (settingHoursTimer || settingMinutesTimer || settingHoursAlarm || settingMinutesAlarm || settingAmpmAlarm))
       || currentMode == 2)) {
     if (!scrollClicked){
       scrollClicked = true;
-
       if (currentMode == 2){
-        if (leftClicked == HIGH) {
-          if (dayIndex == 0) {
-            dayIndex = 6;
-          } else {
-            dayIndex--;
-          }
-        }
-        if (rightClicked == HIGH) {
-          if (dayIndex == 6) {
-            dayIndex = 0;
-          } else {
-            dayIndex++;
-          }
-        }
-        lcd.clear();
+        handleWeatherScroll(leftClicked, rightClicked);
       }
-
       if (currentMode == 3){
-        // Clear previously shown hours/minutes
-        lcd.setCursor(7, 1);
-        lcd.print(F("  "));
-        if (settingHoursTimer){
-          if (leftClicked){
-            if (timerHours == 0) {
-              timerHours = 24;
-            } else {
-              timerHours--;
-            }
-          } else if (rightClicked){
-            if (timerHours == 24) {
-              timerHours = 0;
-            } else {
-              timerHours++;
-            }
-          }
-        } else if (settingMinutesTimer){
-          if (leftClicked){
-            if (timerMins == 0) {
-              timerMins = 59;
-            } else {
-              timerMins--;
-            }
-          } else if (rightClicked){
-            if (timerMins == 59) {
-              timerMins = 0;
-            } else {
-              timerMins++;
-            }
-          }
-        }
+        handleTimerScroll(leftClicked, rightClicked);
       }
-
       if (currentMode == 4){
-        // Clear previously shown hours/minutes
-        lcd.setCursor(7, 1);
-        lcd.print("  ");
-        if (settingHoursAlarm){
-          if (leftClicked){
-            if (alarmHours == 0) {
-              alarmHours = 24;
-            } else {
-              alarmHours--;
-            }
-          } else if (rightClicked){
-            if (alarmHours == 24) {
-              alarmHours = 0;
-            } else {
-              alarmHours++;
-            }
-          }
-        } else if (settingMinutesAlarm){
-          if (leftClicked){
-            if (alarmMins == 0) {
-              alarmMins = 59;
-            } else {
-              alarmMins--;
-            }
-          } else if (rightClicked){
-            if (alarmMins == 59) {
-              alarmMins = 0;
-            } else {
-              alarmMins++;
-            }
-          }
-        } else if (settingAmpmAlarm){
-          alarmAm = !alarmAm;
-        }
+        handleAlarmScroll(leftClicked, rightClicked);
       }
-
-      buzzerOn = true;
-      buzzerStart = millis();
+      tone(BUZZER, BUZZER_FREQ, 100);
     }
   } else {
     scrollClicked = false;
@@ -268,46 +153,11 @@ void loop(){
   if (modeButtonClicked == HIGH) {
     if (!modeClicked){
       modeClicked = true; 
-      if (settingHoursTimer){
-        settingMinutesTimer = true;
-        settingHoursTimer = false;
-      } else if (settingMinutesTimer){
-        timerEnabled = true;
-        unsigned long totalTimerLength = ((timerHours * 60) + timerMins) * 60 * 1000;
-        timerEnd = millis() + totalTimerLength;
-        settingMinutesTimer = false;
-      } else if (settingHoursAlarm){
-        settingMinutesAlarm = true;
-        settingHoursAlarm = false;
-      } else if (settingMinutesAlarm){
-        settingMinutesAlarm = false;
-        settingAmpmAlarm = true;
-      } else if (settingAmpmAlarm){
-        alarmEnabled = true;
-        settingAmpmAlarm = false;
-      } else if (currentMode == 1) {
-        dayIndex = 0;
-        currentMode++;
-      } else if (currentMode == 4){
-        currentMode = 0;
-      } else {
-        currentMode++;
-      }
-      lcd.clear();
-      buzzerOn = true;
-      buzzerStart = millis();
+      handleModeClick();
+      tone(BUZZER, BUZZER_FREQ, 100);
     }
   } else {
     modeClicked = false;
-  }
-
-  // Beep for key input
-  if (buzzerOn) {
-    digitalWrite(BUZZER, HIGH);
-    if (millis()-buzzerStart > 100) {
-      buzzerOn = false;
-      digitalWrite(BUZZER, LOW);
-    }
   }
 
   // Set time
@@ -316,44 +166,28 @@ void loop(){
     String minuteStr = getDoubleDigit(minute());
     String secondStr = getDoubleDigit(second());
     String amPm = getAMPM();
-    lcd.setCursor(0, 0);
-    lcd.print(String(month()) + "/" + String(day()) + "/" + String(year()).substring(2,4) + " " + getDay(weekday()));
-    lcd.setCursor(0, 1);
-    lcd.print(hourStr + ":" + minuteStr + ":" + secondStr + " " + amPm);
+    printToLCD(String(month()) + "/" + String(day()) + "/" + String(year()).substring(2,4) + " " + getDay(weekday()), 0);
+    printToLCD(hourStr + ":" + minuteStr + ":" + secondStr + " " + amPm, 1);
   }
 
   // Every 2 seconds, check temp and humidity
   if (((millis() - lastTempCheck) > tempCheckTimerDelay) && currentMode == 1) {
     humidity = int(bme.readHumidity());
     temp = int(1.8 * bme.readTemperature() + 32);
-    lcd.setCursor(0, 0);
-    lcd.print(F("Temp-"));
-    lcd.print(temp);
-    lcd.print(F("F"));
-    lcd.setCursor(0, 1);
-    lcd.print(F("Humidity-"));
-    lcd.print(humidity);
-    lcd.print(F("%"));
+    printToLCD(F("Temp-") + String(temp) + F("F"), 0);
+    printToLCD(F("Humidity-") + String(humidity) + F("%"), 1);
     lastTempCheck = millis();
   }
 
   // Set weather
   if (currentMode == 2){
-    int min = int(weatherDataList[dayIndex]["temp"]["min"]);
-    int max = int(weatherDataList[dayIndex]["temp"]["max"]);
+    String min = String(int(weatherDataList[dayIndex]["temp"]["min"]));
+    String max = String(int(weatherDataList[dayIndex]["temp"]["max"]));
     String desc = JSON.stringify(weatherDataList[dayIndex]["weather"][0]["main"]);
     String dayDisplayed = getDisplayDay(weekday(), dayIndex);
 
-    lcd.setCursor(0, 0);
-    lcd.print(dayDisplayed);
-    lcd.print(F(" Low-"));
-    lcd.print(min);
-    lcd.print(F("F"));
-    lcd.setCursor(0, 1);
-    lcd.print(F("High-"));
-    lcd.print(max);
-    lcd.print(F("F "));
-    lcd.print(desc.substring(1, desc.length()-1));
+    printToLCD(dayDisplayed + F(" Low-") + min + F("F"), 0);
+    printToLCD(F("High-") + max + F("F ") + desc.substring(1, desc.length()-1), 1);
   }
 
   // Show timer or prompt for new timer
@@ -364,23 +198,18 @@ void loop(){
       secondsRemaining = secondsRemaining % 3600;
       int minsRemaining = int(secondsRemaining / 60);
       secondsRemaining = secondsRemaining % 60;
-      lcd.setCursor(0, 0);
-      lcd.print(F("Time remaining:"));
-      lcd.setCursor(0,1);
-      lcd.print(getDoubleDigit(hoursRemaining)+":"+getDoubleDigit(minsRemaining)+":"+getDoubleDigit(secondsRemaining));
+      printToLCD(F("Time remaining:"), 0);
+      printToLCD(getDoubleDigit(hoursRemaining)+":"+getDoubleDigit(minsRemaining)+":"+getDoubleDigit(secondsRemaining), 1);
     } else if (settingHoursTimer){
-      lcd.setCursor(0, 0);
-      lcd.print(F("How many hours?"));
+      printToLCD(F("How many hours?"), 0);
       lcd.setCursor(7, 1);
       lcd.print(timerHours);
     } else if (settingMinutesTimer){
-      lcd.setCursor(0, 0);
-      lcd.print(F("How many mins?"));
+      printToLCD(F("How many mins?"), 0);
       lcd.setCursor(7, 1);
       lcd.print(timerMins);
     } else {
-      lcd.setCursor(0, 0);
-      lcd.print(F("Start a timer?"));
+      printToLCD(F("Start a timer?"), 0);
       lcd.setCursor(0, 1);
       lcd.print(F("Click "));
       lcd.write(0x7F); // Left arrow
@@ -392,28 +221,23 @@ void loop(){
   // Set alarm
   if (currentMode == 4){
     if (alarmEnabled){
-      lcd.setCursor(0, 0);
-      lcd.print(F("Alarm Set For:"));
-      lcd.setCursor(0,1);
-      lcd.print(getDoubleDigit(alarmHours)+":"+getDoubleDigit(alarmMins)+" ");
+      printToLCD(F("Alarm Set For:"), 0);
+      printToLCD(getDoubleDigit(alarmHours)+":"+getDoubleDigit(alarmMins)+" ", 1);
       if (alarmAm){
         lcd.print(F("AM"));
       } else {
         lcd.print(F("PM"));
       }
     } else if (settingHoursAlarm){
-      lcd.setCursor(0, 0);
-      lcd.print(F("At which hour?"));
+      printToLCD(F("At which hour?"), 0);
       lcd.setCursor(7, 1);
-      lcd.print(alarmHours);
+      lcd.print(getDoubleDigit(alarmHours));
     } else if (settingMinutesAlarm){
-      lcd.setCursor(0, 0);
-      lcd.print("At which minute?");
+      printToLCD(F("At which minute?"), 0);
       lcd.setCursor(7, 1);
-      lcd.print(alarmMins);
+      lcd.print(getDoubleDigit(alarmMins));
     } else if (settingAmpmAlarm){
-      lcd.setCursor(0, 0);
-      lcd.print(F("AM or PM?"));
+      printToLCD(F("AM or PM?"), 0);
       lcd.setCursor(7, 1);
       if (alarmAm){
         lcd.print(F("AM"));
@@ -421,8 +245,7 @@ void loop(){
         lcd.print(F("PM"));
       }
     } else {
-      lcd.setCursor(0, 0);
-      lcd.print(F("Set an alarm?"));
+      printToLCD(F("Set an alarm?"), 0);
       lcd.setCursor(0, 1);
       lcd.print(F("Click "));
       lcd.write(0x7F); // Left arrow
@@ -434,18 +257,16 @@ void loop(){
   // trigger timer at end if set
   if (millis() > timerEnd && timerEnabled){
     lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print(F("Timer ended"));
+    printToLCD(F("Timer ended"), 0);
     alarmTriggered = true;
     timerEnabled = false;
     timerEnd = 0;
   }
   
   // Trigger alarm if at alarm time
-  if (alarmEnabled && hour() == alarmHours && minute() == alarmMins && (isAM() && alarmAm) || (isPM() && !alarmAm)){
+  if (alarmEnabled && hour() == alarmHours && minute() == alarmMins && ((isAM() && alarmAm) || (isPM() && !alarmAm))){
     lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print(F("Alarm triggered"));
+    printToLCD(F("Alarm triggered"), 0);
     alarmEnabled = false;
     alarmTriggered = true;
   }
@@ -455,112 +276,4 @@ void loop(){
     getWeatherData();
     lastWeatherUpdate = millis();
   }
-}
-
-void getWeatherData(){
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(F("Fetching Updated"));
-  lcd.setCursor(0, 1);
-  lcd.print(F("Weather Data"));
-
-  wifiConnect();
-  if(WiFi.status()== WL_CONNECTED){
-    String serverPath = "http://api.openweathermap.org/data/2.5/forecast/daily?lat=" + lat + "&lon=" + lon + "&units=" + unit + "&cnt=" + dayCount + "&appid=" + openWeatherMapApiKey;
-    
-    jsonBuffer = httpGETRequest(serverPath.c_str());
-    jsonResponseWeather = JSON.parse(jsonBuffer);
-    weatherDataList = jsonResponseWeather["list"];
-
-    serverPath = "http://api.timezonedb.com/v2.1/get-time-zone?key=" + timezoneApiKey + "&format=json&by=position&lat="+ lat + "&lng="+ lon;
-    
-    jsonBuffer = httpGETRequest(serverPath.c_str());
-    jsonResponseTime = JSON.parse(jsonBuffer);
-
-    setTime(long(jsonResponseTime["timestamp"]));
-    if (JSON.typeof(jsonResponseWeather) == "undefined" || JSON.typeof(jsonResponseTime) == "undefined") {
-      return;
-    }
-  }
-  lcd.clear();
-}
-
-void wifiConnect(){
-  WiFi.begin(ssid, password);
-  while(WiFi.status() != WL_CONNECTED) {
-    delay(500);
-  }
-}
-
-
-String httpGETRequest(const char* serverName) {
-  WiFiClient client;
-  HTTPClient http;
-    
-  http.begin(client, serverName);
-  
-  int httpResponseCode = http.GET();
-  
-  String payload = "{}"; 
-  
-  if (httpResponseCode>0) {
-    payload = http.getString();
-  }
-  http.end();
-
-  return payload;
-}
-
-String getDisplayDay(int day, int dayIndex) {
-  int dayDisplayed = day + dayIndex;
-  if (dayDisplayed > 7) {
-    dayDisplayed = dayDisplayed - 7;
-  }
-  return getDay(dayDisplayed);
-}
-
-String getDay(int day){
-  switch(day){
-      case 1:
-        return "Sun.";
-      case 2:
-        return "Mon.";
-      case 3:
-        return "Tues.";
-      case 4:
-        return "Wed.";
-      case 5:
-        return "Thurs.";
-      case 6:
-        return "Fri.";
-      case 7:
-        return "Sat.";
-      default:
-        return "";
-  }
-}
-
-String getAMPM(){
-  if (isAM()){
-    return "AM";
-  } else {
-    return "PM";
-  }
-}
-
-String getDoubleDigit(int val){
-  if (val < 10) {
-    return "0" + String(val);
-  }
-  return String(val);
-}
-
-String getDoubleDigitHour(int val){
-  if (val == 0) {
-    return "12";
-  }
-  if (val > 12){
-    val = val - 12;
-  }
-  return getDoubleDigit(val);
 }
