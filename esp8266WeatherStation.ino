@@ -104,10 +104,10 @@ void loop(){
   if (alarmTriggered){
     if (leftClicked || rightClicked || modeButtonClicked){
       alarmTriggered = false;
-      buzzerOn = true;
-      buzzerStart = millis();
       currentMode = 3;
       resetTimerDisplay();
+      buzzerOn = true;
+      buzzerStart = millis();
     } else {
       if (alarmOn) {
         digitalWrite(BUZZER, HIGH);
@@ -131,8 +131,6 @@ void loop(){
   // Left or right click selected while on weather mode
   if ((leftClicked == HIGH || rightClicked == HIGH) && currentMode == 2) {
     if (!scrollWeatherClicked){
-      buzzerOn = true;
-      buzzerStart = millis();
       scrollWeatherClicked = true;
       if (leftClicked == HIGH) {
         if (dayIndex == 0) {
@@ -149,6 +147,8 @@ void loop(){
         }
       }
       updateWeatherDisplay = true;
+      buzzerOn = true;
+      buzzerStart = millis();
     }
   } else {
     scrollWeatherClicked = false;
@@ -157,8 +157,6 @@ void loop(){
   // Left and right clicked while in timer mode
   if (leftClicked == HIGH && rightClicked == HIGH && currentMode == 3){
     if (!bothClicked){
-      buzzerOn = true;
-      buzzerStart = millis();
       bothClicked = true;
       if (checkTimer){ // if timer is counting down and there is a double click, then cancel timer
         checkTimer = false;
@@ -172,6 +170,8 @@ void loop(){
         settingHours = true;
         scrollTimerClicked = true; // this avoids immediately changing hours after double click
       }
+      buzzerOn = true;
+      buzzerStart = millis();
     } 
   } else {
     bothClicked = false;
@@ -180,8 +180,6 @@ void loop(){
   // Left or right click selected while setting timer minutes or hours
   if ((leftClicked == HIGH || rightClicked == HIGH) && currentMode == 3 && (settingHours || settingMinutes)) {
     if (!scrollTimerClicked){
-      buzzerOn = true;
-      buzzerStart = millis();
       scrollTimerClicked = true;
       // Clear previously shown hours/minutes
       lcd.setCursor(7, 1);
@@ -219,6 +217,8 @@ void loop(){
         lcd.setCursor(7, 1);
         lcd.print(timerMins);
       }
+      buzzerOn = true;
+      buzzerStart = millis();
     }
   } else {
     scrollTimerClicked = false;
@@ -227,8 +227,6 @@ void loop(){
   // Mode change pressed, handle new mode or setting hours or minutes
   if (modeButtonClicked == HIGH) {
     if (!modeClicked){
-      buzzerOn = true;
-      buzzerStart = millis();
       modeClicked = true; 
       if (settingHours){
         lcd.clear();
@@ -258,6 +256,8 @@ void loop(){
         currentMode = 0;
         resetTimeDisplay();
       }
+      buzzerOn = true;
+      buzzerStart = millis();
     }
   } else {
     modeClicked = false;
