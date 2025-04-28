@@ -87,12 +87,12 @@ void setup() {
 
   lcd.init();
   lcd.backlight();
-  // lcd.setCursor(0, 0);
-  // lcd.print("David's Weather");
-  // lcd.setCursor(0, 1);
-  // lcd.print("Station");
-  // wifiConnect();
-  // getWeatherData();
+  lcd.setCursor(0, 0);
+  lcd.print("David's Weather");
+  lcd.setCursor(0, 1);
+  lcd.print("Station");
+  wifiConnect();
+  getWeatherData();
   lcd.clear();
 }
 
