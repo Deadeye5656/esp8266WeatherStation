@@ -50,13 +50,3 @@ String getDoubleDigit(int val){
   }
   return String(val);
 }
-
-String getDoubleDigitHour(int val){
-  if (val == 0) {
-    return "12";
-  }
-  if (val > 12){
-    val = val - 12;
-  }
-  return getDoubleDigit(val);
-}

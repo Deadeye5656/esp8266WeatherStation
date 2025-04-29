@@ -54,6 +54,7 @@ boolean modeClicked = false;
 boolean bothClickedTimer = false;
 boolean bothClickedAlarm = false;
 boolean scrollClicked = false;
+boolean alarmDisabledClicked = false;
 unsigned long lastScrollSet = 0;
 unsigned long firstScrollSet = 0;
 
@@ -61,8 +62,6 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 int currentMode = 0; // 0 = time, 1 = temp/humidity, 2 = weather, 3 = timer, 4 = alarm
 
 void setup() {
-  Serial.begin(9600);
-
   bme.begin(0x76);  
 
   pinMode(LEFT_CLICK, INPUT);
@@ -85,9 +84,12 @@ void loop(){
   // Alarm or timer going off
   if (alarmTriggered){
     if (leftClicked || rightClicked || modeButtonClicked){
-      alarmTriggered = false;
-      lcd.clear();
-      tone(BUZZER, BUZZER_FREQ, 100);
+      if (!alarmDisabledClicked){
+        alarmDisabledClicked = true;
+        alarmTriggered = false;
+        lcd.clear();
+        tone(BUZZER, BUZZER_FREQ, 100);
+      }
     } else {
       if (alarmBuzzerOn) {
         tone(BUZZER, BUZZER_FREQ);
@@ -103,8 +105,9 @@ void loop(){
         }
         alarmBuzzerOn = !alarmBuzzerOn; // Toggle between high and low
       }
-      return;
+      alarmDisabledClicked = false;
     }
+    return;
   }
 
   // Left and right clicked while in timer mode
@@ -113,6 +116,9 @@ void loop(){
       bothClickedTimer = true;
       handleDoubleClickTimer();
       tone(BUZZER, BUZZER_FREQ, 100);
+      // This prevents double click adjusting timer/alarm
+      scrollClicked = true;
+      firstScrollSet = millis();
     } 
   } else {
     bothClickedTimer = false;
@@ -124,6 +130,9 @@ void loop(){
       bothClickedAlarm = true;
       handleDoubleClickAlarm();
       tone(BUZZER, BUZZER_FREQ, 100);
+      // This prevents double click adjusting timer/alarm
+      scrollClicked = true;
+      firstScrollSet = millis();
     } 
   } else {
     bothClickedAlarm = false;
@@ -134,7 +143,7 @@ void loop(){
       (((currentMode == 3 || currentMode == 4)
       && (settingHoursTimer || settingMinutesTimer || settingHoursAlarm || settingMinutesAlarm || settingAmpmAlarm))
       || currentMode == 2)) {
-    if (!scrollClicked){
+    if (!scrollClicked){ 
       scrollClicked = true;
       if (currentMode == 2){
         handleWeatherScroll(leftClicked, rightClicked);
@@ -176,7 +185,7 @@ void loop(){
 
   // Set time
   if (currentMode == 0){
-    String hourStr = getDoubleDigitHour(hour());
+    String hourStr = getDoubleDigit(hourFormat12());
     String minuteStr = getDoubleDigit(minute());
     String secondStr = getDoubleDigit(second());
     String amPm = getAMPM();
@@ -274,15 +283,14 @@ void loop(){
     printToLCD(F("Timer ended"), 0);
     alarmTriggered = true;
     timerEnabled = false;
-    timerEnd = 0;
   }
   
   // Trigger alarm if at alarm time
-  if (alarmEnabled && hour() == alarmHours && minute() == alarmMins && ((isAM() && alarmAm) || (isPM() && !alarmAm))){
+  if (alarmEnabled && hourFormat12() == alarmHours && minute() == alarmMins && ((isAM() && alarmAm) || (isPM() && !alarmAm))){
     lcd.clear();
     printToLCD(F("Alarm triggered"), 0);
-    alarmEnabled = false;
     alarmTriggered = true;
+    alarmEnabled = false;
   }
 
   // Update weather data hourly
