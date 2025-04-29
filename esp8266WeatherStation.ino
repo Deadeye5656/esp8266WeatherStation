@@ -54,6 +54,8 @@ boolean modeClicked = false;
 boolean bothClickedTimer = false;
 boolean bothClickedAlarm = false;
 boolean scrollClicked = false;
+unsigned long lastScrollSet = 0;
+unsigned long firstScrollSet = 0;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 int currentMode = 0; // 0 = time, 1 = temp/humidity, 2 = weather, 3 = timer, 4 = alarm
@@ -143,7 +145,19 @@ void loop(){
       if (currentMode == 4){
         handleAlarmScroll(leftClicked, rightClicked);
       }
+      firstScrollSet = millis();
+      lastScrollSet = millis();
       tone(BUZZER, BUZZER_FREQ, 100);
+    } else if (millis() - firstScrollSet > 1500){
+      if (millis() - lastScrollSet > 150){
+        if (currentMode == 3){
+          handleTimerScroll(leftClicked, rightClicked);
+        }
+        if (currentMode == 4){
+          handleAlarmScroll(leftClicked, rightClicked);
+        }
+        lastScrollSet = millis();
+      }
     }
   } else {
     scrollClicked = false;
