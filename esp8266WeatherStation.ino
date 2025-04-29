@@ -26,6 +26,8 @@ int humidity = 0;
 int temp = 0;
 unsigned long tempCheckTimerDelay = 1000;
 unsigned long lastTempCheck = 0;
+int tempTolerance = 0;
+unsigned long lastToleranceCheck = 0;
 
 // Timer variables
 int timerHours = 0;
@@ -194,9 +196,9 @@ void loop(){
   }
 
   // Every 2 seconds, check temp and humidity
-  if (((millis() - lastTempCheck) > tempCheckTimerDelay) && currentMode == 1) {
+  if (currentMode == 1 && ((millis() - lastTempCheck) > tempCheckTimerDelay)) {
     humidity = int(bme.readHumidity());
-    temp = int(1.8 * bme.readTemperature() + 32);
+    temp = int(1.8 * bme.readTemperature() + 32 + tempTolerance);
     printToLCD(F("Temp-") + String(temp) + F("F"), 0);
     printToLCD(F("Humidity-") + String(humidity) + F("%"), 1);
     lastTempCheck = millis();
@@ -291,6 +293,12 @@ void loop(){
     printToLCD(F("Alarm triggered"), 0);
     alarmTriggered = true;
     alarmEnabled = false;
+  }
+
+  // Adjust temp tolerance at 5, 10 minute mark to account for self-heating
+  if (tempTolerance > -2 && millis() - lastToleranceCheck > 300000){
+    tempTolerance--;
+    lastToleranceCheck = millis();
   }
 
   // Update weather data hourly
