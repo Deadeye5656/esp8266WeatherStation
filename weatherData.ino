@@ -32,7 +32,7 @@ void getWeatherData(){
     jsonBuffer = httpGETRequest(serverPath.c_str());
     jsonResponseWeather = JSON.parse(jsonBuffer);
 
-    weatherTemp = int(jsonResponseWeather["main"]["feels_like"]);
+    weatherTemp = int(round(JSON.stringify(jsonResponseWeather["main"]["feels_like"]).toFloat()));
     weatherCondition = JSON.stringify(jsonResponseWeather["weather"][0]["main"]);
     weatherHumidity = int(jsonResponseWeather["main"]["humidity"]);
 

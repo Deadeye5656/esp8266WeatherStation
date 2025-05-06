@@ -42,7 +42,7 @@ int humidity = 0;
 int temp = 0;
 unsigned long tempCheckTimerDelay = 1000;
 unsigned long lastTempCheck = 0;
-int tempTolerance = 0;
+float tempTolerance = 0;
 unsigned long lastToleranceCheck = 0;
 
 // Timer variables
@@ -80,7 +80,6 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 int currentMode = 0; // 0 = time, 1 = temp/humidity, 2 = forecast, 3 = current weather, 4 = timer, 5 = alarm
 
 void setup() {
-  Serial.begin(9600);
   bme.begin(0x76);  
 
   pinMode(LEFT_CLICK, INPUT);
@@ -217,8 +216,8 @@ void loop(){
 
   // Every 2 seconds, check temp and humidity
   if (currentMode == TEMP_MODE && ((millis() - lastTempCheck) > tempCheckTimerDelay)) {
-    humidity = int(bme.readHumidity());
-    temp = int(1.8 * bme.readTemperature() + 32 + tempTolerance);
+    humidity = int(round(bme.readHumidity()));
+    temp = int(round(1.8 * bme.readTemperature() + 32.0 + tempTolerance));
 
     printToLCD(F("Indoor:"), 0);
     printToLCD(F("T-") + String(temp) + F("F H-") + String(humidity) + F("%"), 1);
@@ -227,14 +226,14 @@ void loop(){
 
   // Set weather
   if (currentMode == WEATHER_MODE){
-    printToLCD(F("Outdoor:  ") + weatherCondition.substring(1, weatherCondition.length()-1), 0);
+    printToLCD(F("Outdoor: ") + weatherCondition.substring(1, weatherCondition.length()-1), 0);
     printToLCD(F("T-") + String(weatherTemp) + F("F H-") + String(weatherHumidity) + F("%"), 1);
   }
 
   // Set forecast
   if (currentMode == FORECAST_MODE){
-    String min = String(int(weatherDataList[dayIndex]["temp"]["min"]));
-    String max = String(int(weatherDataList[dayIndex]["temp"]["max"]));
+    String min = String(int(round(JSON.stringify(weatherDataList[dayIndex]["temp"]["min"]).toFloat())));
+    String max = String(int(round(JSON.stringify(weatherDataList[dayIndex]["temp"]["max"]).toFloat())));
     String condition = JSON.stringify(weatherDataList[dayIndex]["weather"][0]["main"]);
     String dayDisplayed = getDisplayDay(weekday(), dayIndex);
 
