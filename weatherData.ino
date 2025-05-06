@@ -19,19 +19,32 @@ void getWeatherData(){
 
   wifiConnect();
   if(WiFi.status()== WL_CONNECTED){
+    // Forecast data
     String serverPath = "http://api.openweathermap.org/data/2.5/forecast/daily?lat=" + lat + "&lon=" + lon + "&units=" + unit + "&cnt=" + dayCount + "&appid=" + openWeatherMapApiKey;
     
     jsonBuffer = httpGETRequest(serverPath.c_str());
-    jsonResponseWeather = JSON.parse(jsonBuffer);
-    weatherDataList = jsonResponseWeather["list"];
+    jsonResponseForecast = JSON.parse(jsonBuffer);
+    weatherDataList = jsonResponseForecast["list"];
 
+    // Weather data
+    serverPath = "http://api.openweathermap.org/data/2.5/weather?lat=" + lat + "&lon=" + lon + "&units=" + unit + "&appid=" + openWeatherMapApiKey;
+    
+    jsonBuffer = httpGETRequest(serverPath.c_str());
+    jsonResponseWeather = JSON.parse(jsonBuffer);
+
+    weatherTemp = int(jsonResponseWeather["main"]["feels_like"]);
+    weatherCondition = JSON.stringify(jsonResponseWeather["weather"][0]["main"]);
+    weatherHumidity = int(jsonResponseWeather["main"]["humidity"]);
+
+    // Current Time
     serverPath = "http://api.timezonedb.com/v2.1/get-time-zone?key=" + timezoneApiKey + "&format=json&by=position&lat="+ lat + "&lng="+ lon;
     
     jsonBuffer = httpGETRequest(serverPath.c_str());
     jsonResponseTime = JSON.parse(jsonBuffer);
 
     setTime(long(jsonResponseTime["timestamp"]));
-    if (JSON.typeof(jsonResponseWeather) == "undefined" || JSON.typeof(jsonResponseTime) == "undefined") {
+    lastDay = weekday();
+    if (JSON.typeof(jsonResponseWeather) == "undefined" || JSON.typeof(jsonResponseForecast) == "undefined" || JSON.typeof(jsonResponseTime) == "undefined") {
       return;
     }
   }
@@ -55,7 +68,7 @@ String httpGETRequest(const char* serverName) {
   int httpResponseCode = http.GET();
   
   String payload = "{}"; 
-  
+
   if (httpResponseCode>0) {
     payload = http.getString();
   }

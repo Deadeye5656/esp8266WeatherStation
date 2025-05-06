@@ -126,10 +126,10 @@ void handleModeClick(){
   } else if (settingAmpmAlarm){
     alarmEnabled = true;
     settingAmpmAlarm = false;
-  } else if (currentMode == 1) {
+  } else if (currentMode == WEATHER_MODE) {
     dayIndex = 0;
     currentMode++;
-  } else if (currentMode == 4){
+  } else if (currentMode == ALARM_MODE){
     currentMode = 0;
   } else {
     currentMode++;

@@ -11,14 +11,30 @@
 #define LEFT_CLICK D6
 #define BUTTON_MODE D5
 
-// Weather variables
+#define CLOCK_MODE 0
+#define TEMP_MODE 1
+#define WEATHER_MODE 2
+#define FORECAST_MODE 3
+#define TIMER_MODE 4
+#define ALARM_MODE 5
+
+// Clock Variables
+int lastDay;
+
+// Forecast variables
 String jsonBuffer;
-JSONVar jsonResponseWeather;
+JSONVar jsonResponseForecast;
 JSONVar jsonResponseTime;
 int dayIndex = 0;
 JSONVar weatherDataList;
-int weatherUpdateTimerDelay = 3600000;
+int weatherUpdateTimerDelay = 1800000; // 30 minutes
 unsigned long lastWeatherUpdate = 0;
+
+// Weather Variables
+JSONVar jsonResponseWeather;
+int weatherTemp = 0;
+String weatherCondition = "";
+int weatherHumidity = 0;
 
 // Temp variables
 Adafruit_BME280 bme;
@@ -61,9 +77,10 @@ unsigned long lastScrollSet = 0;
 unsigned long firstScrollSet = 0;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
-int currentMode = 0; // 0 = time, 1 = temp/humidity, 2 = weather, 3 = timer, 4 = alarm
+int currentMode = 0; // 0 = time, 1 = temp/humidity, 2 = forecast, 3 = current weather, 4 = timer, 5 = alarm
 
 void setup() {
+  Serial.begin(9600);
   bme.begin(0x76);  
 
   pinMode(LEFT_CLICK, INPUT);
@@ -113,7 +130,7 @@ void loop(){
   }
 
   // Left and right clicked while in timer mode
-  if (leftClicked == HIGH && rightClicked == HIGH && currentMode == 3){
+  if (leftClicked == HIGH && rightClicked == HIGH && currentMode == TIMER_MODE){
     if (!bothClickedTimer){
       bothClickedTimer = true;
       handleDoubleClickTimer();
@@ -127,7 +144,7 @@ void loop(){
   }
 
   // Left and right clicked while in alarm mode
-  if (leftClicked == HIGH && rightClicked == HIGH && currentMode == 4){
+  if (leftClicked == HIGH && rightClicked == HIGH && currentMode == ALARM_MODE){
     if (!bothClickedAlarm){
       bothClickedAlarm = true;
       handleDoubleClickAlarm();
@@ -142,18 +159,18 @@ void loop(){
 
   // Left or right click selected while setting timer/alarm minutes or hours, or weather day
   if ((leftClicked == HIGH || rightClicked == HIGH) && 
-      (((currentMode == 3 || currentMode == 4)
+      (((currentMode == TIMER_MODE || currentMode == ALARM_MODE)
       && (settingHoursTimer || settingMinutesTimer || settingHoursAlarm || settingMinutesAlarm || settingAmpmAlarm))
-      || currentMode == 2)) {
+      || currentMode == FORECAST_MODE)) {
     if (!scrollClicked){ 
       scrollClicked = true;
-      if (currentMode == 2){
+      if (currentMode == FORECAST_MODE){
         handleWeatherScroll(leftClicked, rightClicked);
       }
-      if (currentMode == 3){
+      if (currentMode == TIMER_MODE){
         handleTimerScroll(leftClicked, rightClicked);
       }
-      if (currentMode == 4){
+      if (currentMode == ALARM_MODE){
         handleAlarmScroll(leftClicked, rightClicked);
       }
       firstScrollSet = millis();
@@ -161,10 +178,10 @@ void loop(){
       tone(BUZZER, BUZZER_FREQ, 100);
     } else if (millis() - firstScrollSet > 1500){
       if (millis() - lastScrollSet > 150){
-        if (currentMode == 3){
+        if (currentMode == TIMER_MODE){
           handleTimerScroll(leftClicked, rightClicked);
         }
-        if (currentMode == 4){
+        if (currentMode == ALARM_MODE){
           handleAlarmScroll(leftClicked, rightClicked);
         }
         lastScrollSet = millis();
@@ -186,37 +203,47 @@ void loop(){
   }
 
   // Set time
-  if (currentMode == 0){
+  if (currentMode == CLOCK_MODE){
     String hourStr = getDoubleDigit(hourFormat12());
     String minuteStr = getDoubleDigit(minute());
     String secondStr = getDoubleDigit(second());
     String amPm = getAMPM();
-    printToLCD(String(month()) + "/" + String(day()) + "/" + String(year()).substring(2,4) + " " + getDay(weekday()), 0);
+    int currentDay = weekday();
+    if (lastDay != currentDay) {lcd.clear();} // Clear if day has changed
+    printToLCD(String(month()) + "/" + String(day()) + "/" + String(year()).substring(2,4) + " " + getDay(currentDay), 0);
     printToLCD(hourStr + ":" + minuteStr + ":" + secondStr + " " + amPm, 1);
+    lastDay = currentDay;
   }
 
   // Every 2 seconds, check temp and humidity
-  if (currentMode == 1 && ((millis() - lastTempCheck) > tempCheckTimerDelay)) {
+  if (currentMode == TEMP_MODE && ((millis() - lastTempCheck) > tempCheckTimerDelay)) {
     humidity = int(bme.readHumidity());
     temp = int(1.8 * bme.readTemperature() + 32 + tempTolerance);
-    printToLCD(F("Temp-") + String(temp) + F("F"), 0);
-    printToLCD(F("Humidity-") + String(humidity) + F("%"), 1);
+
+    printToLCD(F("Indoor:"), 0);
+    printToLCD(F("T-") + String(temp) + F("F H-") + String(humidity) + F("%"), 1);
     lastTempCheck = millis();
   }
 
   // Set weather
-  if (currentMode == 2){
+  if (currentMode == WEATHER_MODE){
+    printToLCD(F("Outdoor:  ") + weatherCondition.substring(1, weatherCondition.length()-1), 0);
+    printToLCD(F("T-") + String(weatherTemp) + F("F H-") + String(weatherHumidity) + F("%"), 1);
+  }
+
+  // Set forecast
+  if (currentMode == FORECAST_MODE){
     String min = String(int(weatherDataList[dayIndex]["temp"]["min"]));
     String max = String(int(weatherDataList[dayIndex]["temp"]["max"]));
-    String desc = JSON.stringify(weatherDataList[dayIndex]["weather"][0]["main"]);
+    String condition = JSON.stringify(weatherDataList[dayIndex]["weather"][0]["main"]);
     String dayDisplayed = getDisplayDay(weekday(), dayIndex);
 
     printToLCD(dayDisplayed + F(" Low-") + min + F("F"), 0);
-    printToLCD(F("High-") + max + F("F ") + desc.substring(1, desc.length()-1), 1);
+    printToLCD(F("High-") + max + F("F ") + condition.substring(1, condition.length()-1), 1);
   }
 
   // Show timer or prompt for new timer
-  if (currentMode == 3){
+  if (currentMode == TIMER_MODE){
     if (timerEnabled){
       int secondsRemaining = int((timerEnd - millis()) / 1000);
       int hoursRemaining = int(secondsRemaining / 3600);
@@ -244,7 +271,7 @@ void loop(){
   }
 
   // Set alarm
-  if (currentMode == 4){
+  if (currentMode == ALARM_MODE){
     if (alarmEnabled){
       printToLCD(F("Alarm Set For:"), 0);
       printToLCD(getDoubleDigit(alarmHours)+":"+getDoubleDigit(alarmMins)+" ", 1);
